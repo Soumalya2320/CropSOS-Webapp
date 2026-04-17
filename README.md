@@ -2,6 +2,9 @@
 
 CropSOS is an AI-powered web application designed to help farmers detect plant diseases early using image-based analysis and receive actionable treatment advice. The platform also introduces a community-driven alert system to notify nearby farmers about potential disease outbreaks.
 
+<img width="1287" height="768" alt="WhatsApp Image 2026-04-17 at 8 51 43 PM" src="https://github.com/user-attachments/assets/04545e38-c2f7-4a31-9061-7c65dd1b3359" />
+
+
 ---
 
 ## 🎯 Problem Statement
