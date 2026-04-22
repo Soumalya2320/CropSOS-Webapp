@@ -262,12 +262,13 @@ export default {
   overflow: hidden;
   margin-bottom: 32px;
   flex-shrink: 0;
+  transform: translateX(-25px);
 }
 
 .account-right-content {
   flex: 1;
-  overflow-y: auto;
-  overflow-x: auto;
+  overflow-y: scroll;
+  overflow-x: hidden;
   transform: translateX(-40px);
 }
 
