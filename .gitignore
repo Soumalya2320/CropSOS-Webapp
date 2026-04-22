@@ -20,3 +20,9 @@ yarn-error.log*
 # OS files
 .DS_Store
 Thumbs.db
+
+
+firebase-credentials.json
+*.pyo
+temp_*.jpg
+venv/

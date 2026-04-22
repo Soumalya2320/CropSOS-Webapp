@@ -5,3 +5,5 @@ torch
 pillow
 google-generativeai
 firebase-admin
+python-dotenv
+gunicorn
