@@ -26,3 +26,6 @@ firebase-credentials.json
 *.pyo
 temp_*.jpg
 venv/
+
+mini_backend/ 
+instance/
