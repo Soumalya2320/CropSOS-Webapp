@@ -345,7 +345,7 @@ export default {
       this.isLoading = true
       this.apiError  = ''
       try {
-        await axios.post('http://localhost:5000/register', {
+        const res = await axios.post('/api/auth/register', {
           first_name:     this.form.firstName,
           last_name:      this.form.lastName,
           email:          this.form.email,
@@ -358,6 +358,12 @@ export default {
           irrigation:     this.form.irrigation,
           alerts_enabled: this.form.alertsEnabled
         })
+        if (res.data?.token) {
+          localStorage.setItem('token', res.data.token)
+        }
+        if (res.data?.user) {
+          localStorage.setItem('user', JSON.stringify(res.data.user))
+        }
         this.currentStep = 3
       } catch (err) {
         this.apiError = err.response?.data?.message || 'Something went wrong. Please try again.'

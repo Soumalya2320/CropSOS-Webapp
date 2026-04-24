@@ -15,11 +15,11 @@
           <p class="hero-left-p">Upload crop images to detect diseases and get AI-powered treatment
             advice from the world's most advanced digital agronomist.</p>
           <div class="hero-left-bottom">
-            <button class="hero-left-button-button">
+            <button class="hero-left-button-button" @click="$router.push('/detect')">
               <span class="material-symbols-outlined">upload_file</span>
               Upload Image
             </button>
-            <button class="btn-text">Learn More</button>
+            <button class="btn-text" @click="$router.push('/about')">Learn More</button>
           </div>
         </div>
         <div class="hero-right">
@@ -94,7 +94,7 @@
         <div class="ht-history">
           <h4>Ready to secure your harvest?</h4>
           <p>Join over 50,000 farmers worldwide who trust CropSOS for precision crop protection.</p>
-          <button>Start Your First Scan</button>
+          <button @click="$router.push('/detect')">Start Your First Scan</button>
         </div>
       </section>
     </section>

@@ -187,7 +187,6 @@ export default {
   letter-spacing: 1px;
   text-transform: uppercase;
   margin-bottom: 20px;
-  transform: translateX(-25px);
 }
 
 .account-left-headline {
@@ -209,13 +208,11 @@ export default {
   color: rgba(255, 255, 255, 0.5);
   line-height: 1.7;
   margin-bottom: 32px;
-  transform: translateX(-25px);
 }
 
 .account-left-stats {
   display: flex;
   gap: 10px;
-  transform: translateX(-50px);
 }
 
 .account-stat {
@@ -247,7 +244,7 @@ export default {
 .account-right {
   flex: 1;
   background: #F5F0E8;
-  padding: 40px 48px;
+  padding: 36px 38px 32px;
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -260,16 +257,22 @@ export default {
   border: 1px solid #C8D9CA;
   border-radius: 10px;
   overflow: hidden;
-  margin-bottom: 32px;
+  margin-bottom: 30px;
   flex-shrink: 0;
-  transform: translateX(-25px);
+  width: 430px;
+  max-width: calc(100% - 56px);
+  align-self: center;
 }
 
 .account-right-content {
   flex: 1;
-  overflow-y: scroll;
+  overflow-y: auto;
   overflow-x: hidden;
-  transform: translateX(-40px);
+  padding: 0 24px 10px 0;
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  scrollbar-gutter: stable;
 }
 
 .account-tab {

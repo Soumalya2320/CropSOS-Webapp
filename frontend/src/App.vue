@@ -15,12 +15,18 @@
           </li>
         </ul>
         <div class="nav-icons">
-          <span class="material-symbols-outlined"><router-link to="/notifications" @click.native="activeTap = 'notifications'">notifications</router-link></span>
-          <span class="material-symbols-outlined"><router-link to="/account" @click.native="activeTap = 'account'">account_circle</router-link></span>
+          <router-link class="nav-icon-link" to="/notifications" @click.native="activeTap = 'notifications'" aria-label="Notifications">
+            <span class="material-symbols-outlined">notifications</span>
+          </router-link>
+          <router-link class="nav-icon-link" :to="accountIconTarget" @click.native="activeTap = accountIconActiveTab" aria-label="Account">
+            <span class="material-symbols-outlined">account_circle</span>
+          </router-link>
         </div>
       </div>
     </nav>
-    <router-view />
+    <keep-alive include="DetectView">
+      <router-view />
+    </keep-alive>
   </div>
 </template>
 
@@ -31,6 +37,34 @@ export default {
   data() {
     return {
       activeTap: 'home'
+    }
+  },
+  computed: {
+    isLoggedIn() {
+      return Boolean(localStorage.getItem('token'))
+    },
+    accountIconTarget() {
+      return this.isLoggedIn ? '/profile' : '/account/login'
+    },
+    accountIconActiveTab() {
+      return this.isLoggedIn ? 'profile' : 'account'
+    }
+  },
+  mounted() {
+    this.syncActiveTab(this.$route.path)
+  },
+  watch: {
+    '$route.path'(path) {
+      this.syncActiveTab(path)
+    }
+  },
+  methods: {
+    syncActiveTab(path) {
+      if (path === '/') this.activeTap = 'home'
+      else if (path.startsWith('/detect')) this.activeTap = 'detect'
+      else if (path.startsWith('/history')) this.activeTap = 'history'
+      else if (path.startsWith('/profile')) this.activeTap = 'profile'
+      else if (path.startsWith('/account')) this.activeTap = 'account'
     }
   }
 }

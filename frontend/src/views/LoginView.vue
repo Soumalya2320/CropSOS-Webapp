@@ -125,19 +125,22 @@ export default {
       this.apiError  = ''
 
       try {
-        const res = await axios.post('http://localhost:5000/login', {
+        const res = await axios.post('/api/auth/login', {
           email:    this.form.email,
           password: this.form.password,
           remember: this.form.remember
         })
 
-        // Save token if returned
+        // Save token and user if returned
         if (res.data?.token) {
           localStorage.setItem('token', res.data.token)
         }
+        if (res.data?.user) {
+          localStorage.setItem('user', JSON.stringify(res.data.user))
+        }
 
-        // Redirect to home/dashboard after login
-        this.$router.push('/')
+        // Redirect to detect page after login
+        this.$router.push('/detect')
 
       } catch (err) {
         this.apiError = err.response?.data?.message || 'Invalid email or password. Please try again.'
@@ -152,7 +155,13 @@ export default {
 <style scoped>
 
 /* ── ROOT ── */
-.login-root { flex: 1; }
+.login-root {
+  flex: 1;
+  width: 100%;
+  max-width: 430px;
+  margin: 0 auto;
+  box-sizing: border-box;
+}
 
 /* ── TITLE ── */
 .login-title {
@@ -170,13 +179,11 @@ export default {
   margin-bottom: 26px;
   line-height: 1.55;
   text-align: left;
-  transform: translateX(-25px);
 }
 
 /* ── FIELD ── */
 .login-field { 
   margin-bottom: 16px;
-  transform: translateX(-25px);
 }
 
 .login-label-row {
@@ -203,14 +210,12 @@ export default {
   color: #2D5A32;
   font-weight: 500;
   text-decoration: none;
-  transform: translateY(80px);
-  transform: translateX(-35px);
 }
 
 .login-forgot:hover { text-decoration: underline; }
 
 /* ── INPUT WRAP ── */
-.login-input-wrap { position: relative; transform: translateX(-25px); }
+.login-input-wrap { position: relative; }
 
 .login-icon {
   position: absolute;
@@ -223,9 +228,7 @@ export default {
   line-height: 1;
 }
 
-.first {
-  transform: translateX(-25px);
-}
+.first { transform: none; }
 
 /* ── INPUT ── */
 .login-input {
