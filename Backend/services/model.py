@@ -1,7 +1,8 @@
 from transformers import pipeline
 from PIL import Image
-import os
-import uuid
+# import os
+# import uuid
+from PIL import Image
 
 
 # Load model ONCE at startup — not on every request (performance critical)
@@ -31,15 +32,13 @@ def analyze_plant_image(image_file) -> dict:
         return {"error": f"Invalid file type. Allowed: {', '.join(ALLOWED_EXTENSIONS)}"}
 
     # FIX #5: Unique temp file per request — prevents race conditions
-    temp_path = f"/tmp/cropsos_{uuid.uuid4().hex}.jpg"
+    # temp_path = f"/tmp/cropsos_{uuid.uuid4().hex}.jpg"
 
     try:
-        # Save temp file
-        image_file.save(temp_path)
 
         # Validate it's actually an image
         try:
-            image = Image.open(temp_path).convert("RGB")
+            image = Image.open(image_file.stream).convert("RGB")
         except Exception:
             return {"error": "Invalid image file — could not open"}
 
@@ -61,7 +60,7 @@ def analyze_plant_image(image_file) -> dict:
     except Exception as e:
         return {"error": f"Image analysis failed: {str(e)}"}
 
-    finally:
-        # Always clean up temp file
-        if os.path.exists(temp_path):
-            os.remove(temp_path)
+    # finally:
+    #     # Always clean up temp file
+    #     if os.path.exists(temp_path):
+    #         os.remove(temp_path)
