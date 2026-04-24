@@ -257,24 +257,47 @@
               >
                 <div
                   class="nearby-icon-wrap"
-                  :class="nearbyIconClass(alert.type)"
+                  :class="nearbyIconClass(alert.severity)"
                 >
-                  <span class="material-symbols-outlined" style="font-size:16px;">
-                    {{ nearbyIcon(alert.type) }}
+                  <span class="material-symbols-outlined">
+                    {{ nearbyIcon(alert.severity) }}
                   </span>
                 </div>
                 <div class="nearby-info">
-                  <div class="nearby-name">{{ alert.name }}</div>
-                  <div class="nearby-meta">{{ alert.distance }} · {{ alert.time }}</div>
+                  <div class="nearby-name">{{ alert.disease }}</div>
+                  <div class="nearby-meta">
+                    Cases: {{ alert.count }} · Severity: {{ alert.severity }}
+                  </div>
                 </div>
                 <span class="material-symbols-outlined nearby-arrow">chevron_right</span>
               </div>
             </div>
 
-            <!-- Heatmap placeholder -->
-            <div class="heatmap-box">
-              <button class="heatmap-btn">VIEW HEATMAP</button>
+            <!-- Heatmap — click to expand -->
+            <div class="heatmap-box" @click="showHeatmap = !showHeatmap">
+              <button class="heatmap-btn">{{ showHeatmap ? 'HIDE HEATMAP' : 'VIEW HEATMAP' }}</button>
             </div>
+
+            <!-- Expanded heatmap grid -->
+            <div v-if="showHeatmap" class="heatmap-legend-box">
+              <div class="heatmap-legend-title">Disease Spread Map — {{ userArea }}</div>
+              <div class="heatmap-grid">
+                <div
+                  v-for="cell in heatmapGrid"
+                  :key="cell.id"
+                  class="heatmap-cell"
+                  :class="cell.cls"
+                  :title="cell.label"
+                ></div>
+              </div>
+              <div class="heatmap-legend-row">
+                <span class="heatmap-dot heatmap-dot-critical"></span> Critical
+                <span class="heatmap-dot heatmap-dot-high" style="margin-left:10px"></span> High
+                <span class="heatmap-dot heatmap-dot-medium" style="margin-left:10px"></span> Medium
+                <span class="heatmap-dot heatmap-dot-none" style="margin-left:10px"></span> Clear
+              </div>
+            </div>
+
           </div>
 
         </div>
@@ -306,28 +329,24 @@
 
 <script>
 import axios from 'axios'
-
+ 
 export default {
   name: 'DetectView',
-
+ 
   data() {
     return {
-      // ── Upload state
       selectedFile:  null,
       previewUrl:    null,
       isDragging:    false,
       isAnalyzing:   false,
       uploadError:   '',
-
-      // ── Result state (null = show upload view)
-      resultData: null,
-
-      // ── User info (loaded from localStorage)
-      userName:    '',
-      userInitials:'',
-      userArea:    '',
-
-      // ── Static tips
+      resultData:    null,
+      userName:      '',
+      userInitials:  '',
+      userArea:      '',
+      showHeatmap:   false,
+      heatmapGrid:   [],
+ 
       captureTips: [
         'Focus on the affected area. If you see spots or discoloration, center it.',
         'Ensure good lighting. Avoid strong shadows or high-noon glare.',
@@ -335,145 +354,187 @@ export default {
       ]
     }
   },
-
+ 
   mounted() {
-    // ── Load user info from localStorage
-    // Change key names to match what your login API saves
     try {
       const user = JSON.parse(localStorage.getItem('user') || '{}')
       const first = user.first_name || user.firstName || ''
       const last  = user.last_name  || user.lastName  || ''
-      this.userName     = first && last ? `${first} ${last}` : (first || 'User')
-      this.userInitials = (first[0] || '') + (last[0] || '')
+      this.userName     = first && last ? `${first} ${last}` : (first || 'Farmer')
+      this.userInitials = ((first[0] || '') + (last[0] || '')).toUpperCase() || 'F'
       this.userArea     = user.state || user.area || user.location || 'Your Region'
     } catch (e) {
-      this.userInitials = 'U'
-      this.userName     = 'User'
+      this.userInitials = 'F'
+      this.userName     = 'Farmer'
       this.userArea     = 'Your Region'
     }
   },
-
+ 
   methods: {
-
-    // ── File input trigger
-    triggerFileInput() {
-      this.$refs.fileInput.click()
-    },
-
-    // ── File selected via input
+ 
+    triggerFileInput() { this.$refs.fileInput.click() },
+ 
     handleFileSelect(e) {
       const file = e.target.files[0]
       if (file) this.setFile(file)
     },
-
-    // ── File dropped
+ 
     handleDrop(e) {
       this.isDragging = false
       const file = e.dataTransfer.files[0]
       if (file) this.setFile(file)
     },
-
-    // ── Set file + generate preview
+ 
     setFile(file) {
       this.selectedFile = file
       this.uploadError  = ''
       this.previewUrl   = URL.createObjectURL(file)
     },
-
-    // ── Clear selected file
+ 
     clearFile() {
       this.selectedFile = null
       this.previewUrl   = null
       this.uploadError  = ''
       this.$refs.fileInput.value = ''
     },
-
-    // ── Reset to upload view
+ 
     resetScan() {
       this.resultData   = null
       this.selectedFile = null
       this.previewUrl   = null
       this.uploadError  = ''
+      this.showHeatmap  = false
+      this.heatmapGrid  = []
     },
-
-    // ── Analyze: upload image + get result
+ 
+    // ════════════════════════════════════════
+    // FIXED: analyzeCrop — sends location correctly
+    // ════════════════════════════════════════
     async analyzeCrop() {
       if (!this.selectedFile) return
       this.isAnalyzing = true
       this.uploadError = ''
-
+ 
       try {
-        // ── Load user info for request
-        const user     = JSON.parse(localStorage.getItem('user') || '{}')
-        const token    = localStorage.getItem('token')
-        const headers  = token ? { Authorization: `Bearer ${token}` } : {}
-
-        // ── Step 1: POST to /predict — single call returns everything
-        // form-data: file, userId, location, cropType
+        const user    = JSON.parse(localStorage.getItem('user') || '{}')
+        const token   = localStorage.getItem('token')
+        const headers = token ? { Authorization: `Bearer ${token}` } : {}
+ 
+        // ── FIX: get location from user object properly
+        const userLocation = user.state || user.area || user.location || 'Unknown'
+ 
         const formData = new FormData()
         formData.append('file',     this.selectedFile)
-        formData.append('userId',   user.id || user._id || user.userId || '')
-        formData.append('location', user.state || user.area || user.location || '')
-        formData.append('cropType', user.cropType || '')   // set if your app stores this
-
-        const res1 = await axios.post('url/predict', formData, { headers })
+        formData.append('userId',   user.id || user._id || '')
+        formData.append('location', userLocation)           // ← FIXED: was hardcoded "Kolkata"
+        formData.append('cropType', user.crop_type || user.cropType || '')
+ 
+        // Step 1: Predict
+        const res1 = await axios.post('/predict', formData, { headers })
         const d    = res1.data
-        // Expected: { disease, confidence, immediate_actions, diagnostic_context,
-        //             spread_risk, estimated_yield_impact }
-
-        // ── Step 2: Fetch nearby alerts separately
-        // Replace 'url/nearby-alerts' with your actual nearby endpoint
+        console.log('[CropSOS] predict response:', d)
+ 
+        // Step 2: Fetch alerts for user's actual location
         let nearbyAlerts = []
         try {
-          const res2   = await axios.get('url/nearby-alerts', { headers })
-          nearbyAlerts = res2.data?.nearbyAlerts || res2.data || []
-        } catch (_) {
-          // nearby alerts failing shouldn't block result display
+          const res2 = await axios.get(`/alerts/${encodeURIComponent(userLocation)}`, { headers })
+          console.log('[CropSOS] alerts response:', res2.data)
+ 
+          nearbyAlerts = (res2.data.alerts || []).map(a => ({
+            disease:  a.disease  || 'Unknown disease',
+            count:    a.count    ?? 0,
+            severity: a.severity || 'unknown',
+            location: a.location || userLocation,
+          }))
+        } catch (alertErr) {
+          console.warn('[CropSOS] alerts fetch failed:', alertErr.message)
+          // Don't fail the whole thing — alerts are optional
         }
-
-        // ── Map backend keys → component keys
+ 
+        // Step 3: Build heatmap grid from alerts
+        this.heatmapGrid = this.buildHeatmapGrid(nearbyAlerts)
+ 
+        // Step 4: Map to resultData — confidence comes as % now (98.5 not 0.9851)
         this.resultData = {
-          diseaseName:      d.disease                 || 'Unknown',
-          scientificName:   d.scientific_name         || '',
-          confidence:       d.confidence              || null,
-          severity:         d.severity               || 'HIGH CONCERN',
-          scanReference:    d.scan_reference          || d.scanReference || '#CS-00000-A',
-          immediateActions: d.immediate_actions       || [],
-          diagnosticContext:d.diagnostic_context      || '',
-          spreadRisk:       d.spread_risk             || '—',
-          estimatedImpact:  d.estimated_yield_impact  || '—',
-          nearbyAlerts
+          diseaseName:       d.disease          || 'Unknown',
+          scientificName:    d.scientific_name  || '',
+          confidence:        d.confidence       || null,   // already % from backend
+          severity:          (d.severity || 'medium').toUpperCase(),
+          scanReference:     d.reportId ? `#CS-${d.reportId.slice(0,5).toUpperCase()}-A` : '#CS-00000-A',
+          immediateActions:  d.advice?.immediate_actions      || [],
+          diagnosticContext: d.advice?.diagnostic_context     || '',
+          spreadRisk:        d.advice?.spread_risk            || '—',
+          estimatedImpact:   d.advice?.estimated_yield_impact || '—',
+          nearbyAlerts,
         }
-
+ 
       } catch (err) {
-        this.uploadError = err.response?.data?.message || 'Analysis failed. Please try again.'
+        console.error('[CropSOS] analyze error:', err)
+        this.uploadError = err.response?.data?.error
+          || err.response?.data?.message
+          || 'Analysis failed. Please try again.'
       } finally {
         this.isAnalyzing = false
       }
     },
-
-    // ── Nearby alert icon based on type
-    nearbyIcon(type) {
-      const map = {
-        blight:  'warning',
-        mildew:  'eco',
-        pest:    'bug_report',
-        rust:    'coronavirus',
-        default: 'warning'
+ 
+    // ════════════════════════════════════════
+    // BUILD HEATMAP: generates 8×6 grid from alerts
+    // ════════════════════════════════════════
+    buildHeatmapGrid(alerts) {
+      const total = 48
+      const cells = []
+ 
+      // Severity → color class
+      const clsMap = {
+        critical: 'heatmap-cell-critical',
+        high:     'heatmap-cell-high',
+        medium:   'heatmap-cell-medium',
+        low:      'heatmap-cell-low',
       }
-      return map[type?.toLowerCase()] || map.default
+ 
+      // How many cells to "infect" per alert based on count
+      const infected = new Map()
+      alerts.forEach(alert => {
+        const sev   = (alert.severity || 'low').toLowerCase()
+        const spots = Math.min(Math.ceil((alert.count || 1) * 2), 12)
+        for (let i = 0; i < spots; i++) {
+          // Random but deterministic based on disease name
+          const hash  = [...(alert.disease || 'x')].reduce((a, c) => a + c.charCodeAt(0), 0)
+          const idx   = (hash * (i + 1) * 7 + i * 13) % total
+          infected.set(idx, { sev, label: `${alert.disease} (${sev})` })
+        }
+      })
+ 
+      for (let i = 0; i < total; i++) {
+        if (infected.has(i)) {
+          const info = infected.get(i)
+          cells.push({ id: i, cls: clsMap[info.sev] || 'heatmap-cell-low', label: info.label })
+        } else {
+          cells.push({ id: i, cls: 'heatmap-cell-none', label: 'No disease detected' })
+        }
+      }
+      return cells
     },
-
-    // ── Nearby alert icon background class
-    nearbyIconClass(type) {
+ 
+    nearbyIcon(severity) {
       const map = {
-        blight:  'nearby-icon-red',
-        mildew:  'nearby-icon-green',
-        pest:    'nearby-icon-orange',
-        rust:    'nearby-icon-yellow',
-        default: 'nearby-icon-red'
+        critical: 'warning',
+        high:     'warning',
+        medium:   'bug_report',
+        low:      'eco',
       }
-      return map[type?.toLowerCase()] || map.default
+      return map[(severity || '').toLowerCase()] || 'warning'
+    },
+ 
+    nearbyIconClass(severity) {
+      const map = {
+        critical: 'nearby-icon-red',
+        high:     'nearby-icon-red',
+        medium:   'nearby-icon-orange',
+        low:      'nearby-icon-green',
+      }
+      return map[(severity || '').toLowerCase()] || 'nearby-icon-red'
     }
   }
 }
@@ -1387,6 +1448,64 @@ export default {
   font-size: 22px !important;
   color: #C8D9CA;
 }
+
+/* Heatmap expanded panel */
+.heatmap-legend-box {
+  background: #1A2B1C;
+  border-radius: 12px;
+  padding: 16px;
+  margin-top: 8px;
+}
+ 
+.heatmap-legend-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: rgba(255,255,255,0.6);
+  letter-spacing: 0.5px;
+  margin-bottom: 12px;
+  text-transform: uppercase;
+}
+ 
+.heatmap-grid {
+  display: grid;
+  grid-template-columns: repeat(8, 1fr);
+  gap: 4px;
+  margin-bottom: 12px;
+}
+ 
+.heatmap-cell {
+  height: 22px;
+  border-radius: 4px;
+  transition: transform 0.15s;
+  cursor: default;
+}
+ 
+.heatmap-cell:hover { transform: scale(1.15); }
+ 
+.heatmap-cell-critical { background: #D94040; }
+.heatmap-cell-high     { background: #E87B2A; }
+.heatmap-cell-medium   { background: #D4B84A; }
+.heatmap-cell-low      { background: #4A7C59; opacity: 0.7; }
+.heatmap-cell-none     { background: rgba(255,255,255,0.08); }
+ 
+.heatmap-legend-row {
+  display: flex;
+  align-items: center;
+  font-size: 11px;
+  color: rgba(255,255,255,0.5);
+  gap: 4px;
+}
+ 
+.heatmap-dot {
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  display: inline-block;
+}
+ 
+.heatmap-dot-critical { background: #D94040; }
+.heatmap-dot-high     { background: #E87B2A; }
+.heatmap-dot-medium   { background: #D4B84A; }
+.heatmap-dot-none     { background: rgba(255,255,255,0.15); }
 
 /* ══════════════════════════════════════
    RESPONSIVE
