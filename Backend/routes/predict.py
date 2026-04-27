@@ -1,7 +1,7 @@
 from flask import Blueprint, request, jsonify
 from services.model import analyze_plant_image
 from services.gemini import get_ai_advice
-from services.firebase import save_report, update_alert
+from services.firebase import save_report, update_alert, get_all_geo_alerts, get_location_alerts
 import logging
 import re
 
@@ -10,13 +10,6 @@ predict_bp = Blueprint('predict', __name__)
 
 
 def clean_disease_name(raw: str) -> dict:
-    """
-    Convert 'Potato___Early_Blight' → 
-      display: 'Early Blight'
-      crop:    'Potato'
-      scientific: mapped from known diseases
-    """
-    # Split on ___ (3 underscores = separator between crop and disease)
     parts = raw.split('___')
     if len(parts) == 2:
         crop    = parts[0].replace('_', ' ').strip()
@@ -25,26 +18,20 @@ def clean_disease_name(raw: str) -> dict:
         crop    = 'Unknown Crop'
         disease = raw.replace('_', ' ').strip()
 
-    # Scientific name map — add more as needed
     scientific_map = {
-        'Early Blight':       'Alternaria solani',
-        'Late Blight':        'Phytophthora infestans',
-        'Leaf Mold':          'Passalora fulva',
-        'Bacterial Spot':     'Xanthomonas campestris',
-        'Yellow Leaf Curl':   'Tomato yellow leaf curl virus',
-        'Mosaic Virus':       'Tobacco mosaic virus',
-        'Powdery Mildew':     'Erysiphe cichoracearum',
-        'Leaf Rust':          'Puccinia triticina',
-        'Brown Spot':         'Cochliobolus miyabeanus',
-        'Healthy':            '',
+        'Early Blight':     'Alternaria solani',
+        'Late Blight':      'Phytophthora infestans',
+        'Leaf Mold':        'Passalora fulva',
+        'Bacterial Spot':   'Xanthomonas campestris',
+        'Powdery Mildew':   'Erysiphe cichoracearum',
+        'Leaf Rust':        'Puccinia triticina',
+        'Brown Spot':       'Cochliobolus miyabeanus',
+        'Healthy':          '',
     }
-    scientific = scientific_map.get(disease, '')
-
     return {
-        'display_disease': disease,        # "Early Blight"
-        'crop_type':       crop,           # "Potato"
-        'scientific_name': scientific,     # "Alternaria solani"
-        'full_label':      f"{crop} — {disease}"
+        'display_disease': disease,
+        'crop_type':       crop,
+        'scientific_name': scientific_map.get(disease, ''),
     }
 
 
@@ -55,66 +42,60 @@ def predict_disease():
             return jsonify({"error": "No file provided"}), 400
 
         file = request.files['file']
-        print("STEP 1: file received:", file.filename)
-
-        # ML model
         result = analyze_plant_image(file)
-        print("STEP 2: model output:", result)
 
         if 'error' in result:
             return jsonify({"error": result['error']}), 400
 
-        raw_disease = result['disease']          # "Potato___Early_Blight"
-        confidence  = result['confidence']       # 0.9851
-        conf_pct    = round(confidence * 100, 1) # 98.5
+        raw_disease = result['disease']
+        confidence  = result['confidence']
+        conf_pct    = round(confidence * 100, 1)
 
-        # Clean disease name
-        cleaned = clean_disease_name(raw_disease)
-        disease_display = cleaned['display_disease']  # "Early Blight"
-        crop_type       = cleaned['crop_type']         # "Potato"
+        cleaned         = clean_disease_name(raw_disease)
+        disease_display = cleaned['display_disease']
+        crop_type       = cleaned['crop_type']
         scientific      = cleaned['scientific_name']
 
-        # Get extra fields from request
-        user_id  = request.form.get('userId',   'anonymous')
-        image_url= request.form.get('imageUrl', '')
-        location = request.form.get('location', 'Unknown')
-        # If frontend didn't send cropType, use what model detected
+        user_id   = request.form.get('userId',   'anonymous')
+        image_url = request.form.get('imageUrl', '')
+        location  = request.form.get('location', 'Unknown')
         crop_type_form = request.form.get('cropType', crop_type)
 
-        print("STEP 3: location from form:", location)
+        # ── GPS coordinates from frontend
+        try:
+            lat = float(request.form.get('lat', 22.57))
+            lng = float(request.form.get('lng', 88.36))
+        except (ValueError, TypeError):
+            lat, lng = 22.57, 88.36
 
-        # Gemini advice — pass cleaned name so prompt is readable
         advice = get_ai_advice(disease_display)
-        print("STEP 4: gemini output:", advice)
 
-        # Severity
         spread_risk  = advice.get('spread_risk', 'Unknown') if isinstance(advice, dict) else 'Unknown'
         severity_map = {'Low': 'low', 'Medium': 'medium', 'High': 'high', 'Critical': 'critical'}
         severity     = severity_map.get(spread_risk, 'medium')
 
-        # Save report
         report_data = {
             "userId":         user_id,
             "imageUrl":       image_url,
             "disease":        disease_display,
             "rawDisease":     raw_disease,
             "scientificName": scientific,
-            "confidence":     conf_pct,         # store as percentage
+            "confidence":     conf_pct,
             "advice":         advice,
             "cropType":       crop_type_form,
             "severity":       severity,
             "location":       location,
+            "lat":            lat,      # ← stored in Firestore
+            "lng":            lng,      # ← stored in Firestore
         }
         report_id = save_report(report_data)
-
-        # Update alert for this location
-        update_alert(disease_display, location, severity)
+        update_alert(disease_display, location, severity, lat, lng)
 
         return jsonify({
             "reportId":        report_id,
-            "disease":         disease_display,   # "Early Blight"
-            "scientific_name": scientific,         # "Alternaria solani"
-            "confidence":      conf_pct,           # 98.5 (not 0.9851)
+            "disease":         disease_display,
+            "scientific_name": scientific,
+            "confidence":      conf_pct,
             "advice":          advice,
             "severity":        severity,
             "location":        location,
@@ -126,21 +107,20 @@ def predict_disease():
         return jsonify({"error": str(e)}), 500
 
 
-@predict_bp.route('/history/<user_id>', methods=['GET'])
-def get_user_history(user_id):
+# ── NEW: Get ALL geo-tagged alerts (for heatmap)
+@predict_bp.route('/alerts/geo', methods=['GET'])
+def get_geo_alerts():
     try:
-        from services.firebase import get_user_reports
-        reports = get_user_reports(user_id)
-        return jsonify({"reports": reports}), 200
+        alerts = get_all_geo_alerts()
+        return jsonify({"alerts": alerts}), 200
     except Exception as e:
-        logger.error(f"History fetch error: {str(e)}")
-        return jsonify({"error": "Could not fetch history"}), 500
+        logger.error(f"Geo alerts error: {str(e)}")
+        return jsonify({"error": "Could not fetch geo alerts"}), 500
 
 
 @predict_bp.route('/alerts/<location>', methods=['GET'])
 def get_alerts(location):
     try:
-        from services.firebase import get_location_alerts
         alerts = get_location_alerts(location)
         return jsonify({"alerts": alerts}), 200
     except Exception as e:
@@ -148,20 +128,27 @@ def get_alerts(location):
         return jsonify({"error": "Could not fetch alerts"}), 500
 
 
+@predict_bp.route('/history/<user_id>', methods=['GET'])
+def get_user_history(user_id):
+    try:
+        from services.firebase import get_user_reports
+        reports = get_user_reports(user_id)
+        return jsonify({"reports": reports}), 200
+    except Exception as e:
+        return jsonify({"error": "Could not fetch history"}), 500
+
+
 @predict_bp.route('/feedback', methods=['POST'])
 def submit_feedback():
     try:
-        data      = request.get_json()
-        report_id = data.get('reportId')
-        user_id   = data.get('userId')
-        is_correct= data.get('isCorrect')
-
+        data       = request.get_json()
+        report_id  = data.get('reportId')
+        user_id    = data.get('userId')
+        is_correct = data.get('isCorrect')
         if report_id is None or is_correct is None:
             return jsonify({"error": "reportId and isCorrect required"}), 400
-
         from services.firebase import save_feedback
         save_feedback(report_id, user_id, is_correct)
         return jsonify({"message": "Feedback saved. Thank you!"}), 200
     except Exception as e:
-        logger.error(f"Feedback error: {str(e)}")
         return jsonify({"error": "Could not save feedback"}), 500
