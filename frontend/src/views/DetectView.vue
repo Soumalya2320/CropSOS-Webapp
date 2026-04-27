@@ -273,28 +273,29 @@
               </div>
             </div>
 
-            <!-- Heatmap — click to expand -->
-            <div class="heatmap-box" @click="showHeatmap = !showHeatmap">
-              <button class="heatmap-btn">{{ showHeatmap ? 'HIDE HEATMAP' : 'VIEW HEATMAP' }}</button>
+            <!-- Real Maps Heatmap -->
+            <div class="heatmap-toggle-bar" @click="toggleHeatmap">
+              <span class="material-symbols-outlined" style="font-size:16px;">map</span>
+              <span>{{ showHeatmap ? 'HIDE DISEASE MAP' : 'VIEW DISEASE HEATMAP' }}</span>
+              <span class="material-symbols-outlined heatmap-chevron" :class="{ rotated: showHeatmap }">expand_more</span>
             </div>
 
-            <!-- Expanded heatmap grid -->
-            <div v-if="showHeatmap" class="heatmap-legend-box">
-              <div class="heatmap-legend-title">Disease Spread Map — {{ userArea }}</div>
-              <div class="heatmap-grid">
-                <div
-                  v-for="cell in heatmapGrid"
-                  :key="cell.id"
-                  class="heatmap-cell"
-                  :class="cell.cls"
-                  :title="cell.label"
-                ></div>
+            <div v-if="showHeatmap" class="heatmap-map-wrap">
+              <div class="heatmap-map-header">
+                <span class="heatmap-map-title">
+                  <span class="material-symbols-outlined" style="font-size:14px;color:#D94040;">location_on</span>
+                  Live Disease Spread — {{ userArea }}
+                </span>
+                <span class="heatmap-cases-badge">{{ nearbyAlertsForMap.length }} active zones</span>
+              </div>
+              <div class="map-wrapper">
+                <div id="cropsos-heatmap"></div>
               </div>
               <div class="heatmap-legend-row">
-                <span class="heatmap-dot heatmap-dot-critical"></span> Critical
-                <span class="heatmap-dot heatmap-dot-high" style="margin-left:10px"></span> High
-                <span class="heatmap-dot heatmap-dot-medium" style="margin-left:10px"></span> Medium
-                <span class="heatmap-dot heatmap-dot-none" style="margin-left:10px"></span> Clear
+                <span class="heatmap-dot" style="background:#D94040"></span> Critical &nbsp;
+                <span class="heatmap-dot" style="background:#E87B2A"></span> High &nbsp;
+                <span class="heatmap-dot" style="background:#D4B84A"></span> Medium &nbsp;
+                <span class="heatmap-dot" style="background:#4A7C59"></span> Low
               </div>
             </div>
 
@@ -344,8 +345,11 @@ export default {
       userName:      '',
       userInitials:  '',
       userArea:      '',
-      showHeatmap:   false,
-      heatmapGrid:   [],
+      showHeatmap:         false,
+      heatmapGrid:         [],
+      nearbyAlertsForMap:  [],
+      userLat:             22.57,
+      userLng:             88.36,
  
       captureTips: [
         'Focus on the affected area. If you see spots or discoloration, center it.',
@@ -403,71 +407,80 @@ export default {
       this.selectedFile = null
       this.previewUrl   = null
       this.uploadError  = ''
-      this.showHeatmap  = false
-      this.heatmapGrid  = []
+      this.showHeatmap        = false
+      this.heatmapGrid        = []
+      this.nearbyAlertsForMap = []
     },
  
-    // ════════════════════════════════════════
-    // FIXED: analyzeCrop — sends location correctly
     // ════════════════════════════════════════
     async analyzeCrop() {
       if (!this.selectedFile) return
       this.isAnalyzing = true
       this.uploadError = ''
- 
+
       try {
         const user    = JSON.parse(localStorage.getItem('user') || '{}')
         const token   = localStorage.getItem('token')
         const headers = token ? { Authorization: `Bearer ${token}` } : {}
- 
-        // ── FIX: get location from user object properly
         const userLocation = user.state || user.area || user.location || 'Unknown'
- 
+
+        // Step 0: Get GPS coordinates
+        const getLocation = () => new Promise((resolve) => {
+          if (!navigator.geolocation) return resolve({ lat: 22.57, lng: 88.36 })
+          navigator.geolocation.getCurrentPosition(
+            (pos) => resolve({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
+            ()    => resolve({ lat: 22.57, lng: 88.36 })  // fallback: Kolkata
+          )
+        })
+        const { lat, lng } = await getLocation()
+        this.userLat = lat
+        this.userLng = lng
+
+        // Step 1: Predict — send GPS coords too
         const formData = new FormData()
         formData.append('file',     this.selectedFile)
         formData.append('userId',   user.id || user._id || '')
-        formData.append('location', userLocation)           // ← FIXED: was hardcoded "Kolkata"
+        formData.append('location', userLocation)
         formData.append('cropType', user.crop_type || user.cropType || '')
- 
-        // Step 1: Predict
+        formData.append('lat',      lat)
+        formData.append('lng',      lng)
+
         const res1 = await axios.post('/predict', formData, { headers })
         const d    = res1.data
         console.log('[CropSOS] predict response:', d)
- 
-        // Step 2: Fetch alerts for user's actual location
+
+        // Step 2: Fetch ALL geo-alerts for heatmap
         let nearbyAlerts = []
         try {
-          const res2 = await axios.get(`/alerts/${encodeURIComponent(userLocation)}`, { headers })
-          console.log('[CropSOS] alerts response:', res2.data)
- 
+          const res2 = await axios.get('/alerts/geo', { headers })
           nearbyAlerts = (res2.data.alerts || []).map(a => ({
-            disease:  a.disease  || 'Unknown disease',
-            count:    a.count    ?? 0,
-            severity: a.severity || 'unknown',
+            disease:  a.disease  || 'Unknown',
+            count:    a.count    ?? 1,
+            severity: a.severity || 'medium',
+            lat:      a.lat      || lat,
+            lng:      a.lng      || lng,
             location: a.location || userLocation,
           }))
         } catch (alertErr) {
-          console.warn('[CropSOS] alerts fetch failed:', alertErr.message)
-          // Don't fail the whole thing — alerts are optional
+          console.warn('[CropSOS] geo-alerts fetch failed:', alertErr.message)
         }
- 
-        // Step 3: Build heatmap grid from alerts
-        this.heatmapGrid = this.buildHeatmapGrid(nearbyAlerts)
- 
-        // Step 4: Map to resultData — confidence comes as % now (98.5 not 0.9851)
+
+        this.nearbyAlertsForMap = nearbyAlerts
+
+        // Step 3: Map to resultData
         this.resultData = {
           diseaseName:       d.disease          || 'Unknown',
           scientificName:    d.scientific_name  || '',
-          confidence:        d.confidence       || null,   // already % from backend
+          confidence:        d.confidence       || null,
           severity:          (d.severity || 'medium').toUpperCase(),
           scanReference:     d.reportId ? `#CS-${d.reportId.slice(0,5).toUpperCase()}-A` : '#CS-00000-A',
           immediateActions:  d.advice?.immediate_actions      || [],
           diagnosticContext: d.advice?.diagnostic_context     || '',
           spreadRisk:        d.advice?.spread_risk            || '—',
           estimatedImpact:   d.advice?.estimated_yield_impact || '—',
-          nearbyAlerts,
+          nearbyAlerts: nearbyAlerts.slice(0, 5),
         }
- 
+
       } catch (err) {
         console.error('[CropSOS] analyze error:', err)
         this.uploadError = err.response?.data?.error
@@ -481,64 +494,129 @@ export default {
     // ════════════════════════════════════════
     // BUILD HEATMAP: generates 8×6 grid from alerts
     // ════════════════════════════════════════
-    buildHeatmapGrid(alerts) {
-      const total = 48
-      const cells = []
- 
-      // Severity → color class
-      const clsMap = {
-        critical: 'heatmap-cell-critical',
-        high:     'heatmap-cell-high',
-        medium:   'heatmap-cell-medium',
-        low:      'heatmap-cell-low',
-      }
- 
-      // How many cells to "infect" per alert based on count
-      const infected = new Map()
-      alerts.forEach(alert => {
-        const sev   = (alert.severity || 'low').toLowerCase()
-        const spots = Math.min(Math.ceil((alert.count || 1) * 2), 12)
-        for (let i = 0; i < spots; i++) {
-          // Random but deterministic based on disease name
-          const hash  = [...(alert.disease || 'x')].reduce((a, c) => a + c.charCodeAt(0), 0)
-          const idx   = (hash * (i + 1) * 7 + i * 13) % total
-          infected.set(idx, { sev, label: `${alert.disease} (${sev})` })
+    // ── Toggle heatmap + init Google Maps ──
+    async toggleHeatmap() {
+      this.showHeatmap = !this.showHeatmap
+      if (this.showHeatmap) {
+        await this.$nextTick()
+        this.initLeafletMap()
+      } else {
+        // Destroy map instance to avoid duplicate map on re-open
+        if (this._leafletMap) {
+          this._leafletMap.remove()
+          this._leafletMap = null
         }
+      }
+    },
+
+    initLeafletMap() {
+      // Destroy previous instance if exists
+      if (this._leafletMap) {
+        this._leafletMap.remove()
+        this._leafletMap = null
+      }
+
+      const L = window.L
+      if (!L) { console.warn('Leaflet not loaded'); return }
+
+      const center = [this.userLat, this.userLng]
+
+      // Init map with dark CartoDB tiles (no API key needed)
+      const map = L.map('cropsos-heatmap', { zoomControl: true, scrollWheelZoom: true })
+        .setView(center, 12)
+      this._leafletMap = map
+
+      // Ensure map renders properly after container changes
+      setTimeout(() => {
+        map.invalidateSize()
+      }, 300)
+
+      L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
+        attribution: '&copy; OpenStreetMap & CARTO'
+      }).addTo(map)
+
+      // Severity → circle color + radius
+      const sevStyle = {
+        critical: { color: '#D94040', radius: 600 },
+        high:     { color: '#E87B2A', radius: 450 },
+        medium:   { color: '#D4B84A', radius: 300 },
+        low:      { color: '#4A7C59', radius: 200 },
+      }
+
+      // Draw heatmap circles for each alert
+      this.nearbyAlertsForMap.forEach(alert => {
+        const sev = (alert.severity || 'medium').toLowerCase()
+        const s   = sevStyle[sev] || sevStyle.medium
+
+        // Outer glow circle
+        L.circle([alert.lat, alert.lng], {
+          color:       'transparent',
+          fillColor:   s.color,
+          fillOpacity: 0.18,
+          radius:      s.radius * 2,
+        }).addTo(map)
+
+        // Inner solid circle
+        const circle = L.circle([alert.lat, alert.lng], {
+          color:       s.color,
+          fillColor:   s.color,
+          fillOpacity: 0.55,
+          weight:      1.5,
+          radius:      s.radius,
+        }).addTo(map)
+
+        // Popup on click
+        circle.bindPopup(`
+          <div style="font-family:sans-serif;min-width:140px;">
+            <div style="font-weight:700;font-size:14px;margin-bottom:4px;">${alert.disease}</div>
+            <div style="font-size:12px;color:#555;">
+              Severity: <strong style="color:${s.color}">${alert.severity}</strong><br/>
+              Cases: <strong>${alert.count}</strong><br/>
+              Zone: ${alert.location}
+            </div>
+          </div>
+        `)
       })
- 
-      for (let i = 0; i < total; i++) {
-        if (infected.has(i)) {
-          const info = infected.get(i)
-          cells.push({ id: i, cls: clsMap[info.sev] || 'heatmap-cell-low', label: info.label })
-        } else {
-          cells.push({ id: i, cls: 'heatmap-cell-none', label: 'No disease detected' })
-        }
+
+      // User location pulse marker (green)
+      const pulseIcon = L.divIcon({
+        className: '',
+        html: `<div style="
+          width:16px;height:16px;
+          background:#5C9B6B;
+          border:2.5px solid #fff;
+          border-radius:50%;
+          box-shadow:0 0 0 6px rgba(92,155,107,0.25);
+        "></div>`,
+        iconSize: [16, 16],
+        iconAnchor: [8, 8],
+      })
+      L.marker(center, { icon: pulseIcon })
+        .addTo(map)
+        .bindPopup('<strong>📍 Your Location</strong>')
+
+      // If no alerts, show a placeholder circle at user location
+      if (this.nearbyAlertsForMap.length === 0) {
+        L.circle(center, {
+          color: '#5C9B6B', fillColor: '#5C9B6B',
+          fillOpacity: 0.2, radius: 500
+        }).addTo(map).bindPopup('No disease alerts in your area yet')
       }
-      return cells
     },
- 
+
     nearbyIcon(severity) {
-      const map = {
-        critical: 'warning',
-        high:     'warning',
-        medium:   'bug_report',
-        low:      'eco',
-      }
-      return map[(severity || '').toLowerCase()] || 'warning'
+      const m = { critical: 'warning', high: 'warning', medium: 'bug_report', low: 'eco' }
+      return m[(severity || '').toLowerCase()] || 'warning'
     },
- 
+
     nearbyIconClass(severity) {
-      const map = {
-        critical: 'nearby-icon-red',
-        high:     'nearby-icon-red',
-        medium:   'nearby-icon-orange',
-        low:      'nearby-icon-green',
-      }
-      return map[(severity || '').toLowerCase()] || 'nearby-icon-red'
+      const m = { critical: 'nearby-icon-red', high: 'nearby-icon-red', medium: 'nearby-icon-orange', low: 'nearby-icon-green' }
+      return m[(severity || '').toLowerCase()] || 'nearby-icon-red'
     }
   }
 }
 </script>
+
 
 <style scoped>
 
@@ -1378,31 +1456,77 @@ export default {
   color: #C8D9CA;
 }
 
-/* ── Heatmap ── */
-.heatmap-box {
-  background: #1A2B1C;
-  border-radius: 12px;
-  height: 90px;
+/* ── Real Heatmap ── */
+.heatmap-toggle-bar {
   display: flex;
   align-items: center;
-  justify-content: center;
-}
-
-.heatmap-btn {
-  padding: 9px 24px;
-  background: rgba(255,255,255,0.12);
-  border: 1px solid rgba(255,255,255,0.2);
-  border-radius: 8px;
+  gap: 8px;
+  background: #1A2B1C;
+  border-radius: 10px;
+  padding: 12px 16px;
+  cursor: pointer;
   font-size: 11.5px;
   font-weight: 700;
-  font-family: inherit;
-  color: #fff;
+  color: rgba(255,255,255,0.8);
   letter-spacing: 0.8px;
-  cursor: pointer;
   transition: background 0.2s;
+  user-select: none;
 }
+.heatmap-toggle-bar:hover { background: #243D26; }
+.heatmap-chevron { margin-left: auto; font-size: 18px !important; transition: transform 0.25s; }
+.heatmap-chevron.rotated { transform: rotate(180deg); }
 
-.heatmap-btn:hover { background: rgba(255,255,255,0.2); }
+.heatmap-map-wrap {
+  background: #1A2B1C;
+  border-radius: 12px;
+  padding: 0;
+  margin-top: 6px;
+  overflow: hidden;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+}
+.heatmap-map-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 14px 10px 14px;
+  width: 100%;
+  box-sizing: border-box;
+}
+.heatmap-map-title {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+  font-weight: 600;
+  color: rgba(255,255,255,0.75);
+}
+.heatmap-cases-badge {
+  font-size: 10.5px;
+  font-weight: 700;
+  color: #5C9B6B;
+  background: rgba(92,155,107,0.15);
+  border: 1px solid rgba(92,155,107,0.3);
+  border-radius: 99px;
+  padding: 2px 10px;
+}
+.heatmap-legend-row {
+  display: flex;
+  align-items: center;
+  font-size: 11px;
+  color: rgba(255,255,255,0.5);
+  gap: 4px;
+  flex-wrap: wrap;
+}
+.heatmap-dot {
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  display: inline-block;
+  flex-shrink: 0;
+}
 
 /* ── Footer Actions ── */
 .result-footer-actions {
@@ -1494,6 +1618,9 @@ export default {
   font-size: 11px;
   color: rgba(255,255,255,0.5);
   gap: 4px;
+  padding: 10px 14px 14px 14px;
+  width: 100%;
+  box-sizing: border-box;
 }
  
 .heatmap-dot {
@@ -1506,6 +1633,35 @@ export default {
 .heatmap-dot-high     { background: #E87B2A; }
 .heatmap-dot-medium   { background: #D4B84A; }
 .heatmap-dot-none     { background: rgba(255,255,255,0.15); }
+
+/* ── Map Container Styles ── */
+.map-wrapper {
+  width: 100%;
+  height: 350px;
+  border-radius: 0;
+  overflow: hidden;
+  position: relative;
+  box-sizing: border-box;
+  flex-shrink: 0;
+}
+
+#cropsos-heatmap {
+  width: 100%;
+  height: 100%;
+  box-sizing: border-box;
+}
+
+.map-container {
+  padding: 0;
+  margin: 0;
+}
+
+.leaflet-container {
+  width: 100% !important;
+  height: 100% !important;
+  box-sizing: border-box !important;
+  display: block !important;
+}
 
 /* ══════════════════════════════════════
    RESPONSIVE
