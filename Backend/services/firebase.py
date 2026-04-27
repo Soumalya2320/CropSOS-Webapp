@@ -27,6 +27,14 @@ def get_user_reports(user_id: str) -> list:
     return [{"id": doc.id, **doc.to_dict()} for doc in docs]
 
 
+def get_report_by_id(report_id: str) -> dict:
+    """Get a specific report by ID."""
+    doc = db.collection("reports").document(report_id).get()
+    if doc.exists:
+        return {"id": doc.id, **doc.to_dict()}
+    return None
+
+
 def update_alert(disease: str, location: str, severity: str, lat: float = 0.0, lng: float = 0.0):
     """
     Upsert an alert. Uses lat/lng for heatmap.

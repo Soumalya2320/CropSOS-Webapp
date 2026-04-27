@@ -68,34 +68,41 @@
 </template>
 
 <script>
+import axios from 'axios'
 export default {
   name: 'AccountView',
   data() {
     return {
-      activeTap: 'login'
+      user: {},
+      activeTab: 'login'
     }
   },
   methods: {
     switchTab(tab) {
-      this.activeTap = tab
+      this.activeTab = tab
       this.$router.push(`/account/${tab}`)
     }
   },
-  mounted() {
-    const path = this.$route.path
-    if (path.includes('register')) {
-      this.activeTap = 'register'
-    } else {
-      this.activeTap = 'login'
+  async mounted() {
+    try {
+      const user = JSON.parse(localStorage.getItem("user") || "{}")
+      const userId = user.id || user._id
+
+      if (!userId) {
+        console.error("User ID missing")
+        return
+      }
+
+      const res = await axios.get(`/user/${userId}`)
+      this.user = res.data?.user || {}
+
+    } catch (err) {
+      console.error("User fetch error:", err)
     }
   },
   watch: {
     '$route.path'(newPath) {
-      if (newPath.includes('register')) {
-        this.activeTap = 'register'
-      } else {
-        this.activeTap = 'login'
-      }
+      this.activeTab = newPath.includes('register') ? 'register' : 'login'
     }
   }
 }

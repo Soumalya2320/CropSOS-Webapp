@@ -133,6 +133,8 @@ export default {
       history: []
     }
   },
+  
+
   computed: {
     selectedFilterLabel() {
       const option = this.filterOptions.find(item => item.value === this.selectedFilter)
@@ -174,6 +176,8 @@ export default {
   methods: {
     async loadHistory() {
       let localHistory = []
+
+      // 🟢 local storage (backup)
       try {
         localHistory = JSON.parse(localStorage.getItem('diagnosisHistory') || '[]')
       } catch (_) {
@@ -181,44 +185,36 @@ export default {
       }
 
       try {
-        const token = localStorage.getItem('token')
-        if (token) {
-          const res = await axios.get('/api/history', {
-            headers: { Authorization: `Bearer ${token}` }
-          })
-          const serverHistory = res.data?.reports || []
-          
-          let availableLocalItems = [...localHistory];
-          
-          this.history = serverHistory.map(serverItem => {
-            const cleanServerDisease = serverItem.disease ? serverItem.disease.replace(/___/g, ' - ').replace(/_/g, ' ') : 'Unknown';
-            const serverDate = (serverItem.date || '').split(' ')[0];
-            
-            const matchIndex = availableLocalItems.findIndex(l => l.id === serverItem.id || ((l.diseaseName === cleanServerDisease || l.diseaseName === serverItem.disease) && l.date.includes(serverDate)));
-            
-            let matchedImageUrl = '';
-            if (matchIndex !== -1) {
-              matchedImageUrl = availableLocalItems[matchIndex].imageUrl;
-              availableLocalItems.splice(matchIndex, 1);
-            }
+        const user = JSON.parse(localStorage.getItem("user") || "{}")
+        const userId = user.id || user._id
 
-            return {
-              id: serverItem.id,
-              diseaseName: serverItem.disease,
-              cropType: serverItem.crop_type,
-              location: serverItem.location,
-              severity: serverItem.severity,
-              date: serverItem.date,
-              imageUrl: matchedImageUrl
-            }
-          })
+        if (!userId) {
+          console.error("User ID missing")
+          this.history = localHistory
           return
         }
+
+        // ✅ CORRECT API
+        const res = await axios.get(`/reports/${userId}`)
+
+        const serverHistory = res.data?.reports || []
+
+        this.history = serverHistory.map(item => ({
+          id: item.id,
+          diseaseName: item.disease,
+          cropType: item.cropType || item.crop_type,
+          location: item.location,
+          severity: item.severity,
+          date: item.createdAt || item.date,
+          imageUrl: item.imageUrl || ''
+        }))
+
       } catch (err) {
         console.error('Failed to load history from server', err)
+
+        // fallback
+        this.history = localHistory
       }
-      
-      this.history = localHistory
     },
     formatDate(value) {
       if (!value) return 'Today · --'

@@ -485,7 +485,7 @@ export default {
 
         // Step 3: Map to resultData
         this.resultData = {
-          diseaseName:       d.disease_name    || 'Unknown',
+          diseaseName:       d.disease          || d.disease_name || 'Unknown',
           scientificName:    d.scientific_name  || '',
           confidence:        d.confidence       || null,
           severity:          (d.severity || 'medium').toUpperCase(),

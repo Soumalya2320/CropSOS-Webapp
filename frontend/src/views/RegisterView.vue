@@ -415,7 +415,7 @@ export default {
   color: #1A2B1C;
   margin-bottom: 5px;
   line-height: 1.2;
-  transform: translateX(23px);
+  
 }
 
 .reg-sub {
@@ -446,11 +446,11 @@ export default {
 }
 
 .first {
-  transform: translateX(-25px);
+ 
 }
 
 .second {
-  transform: translateX(-25px);
+  
 }
 
 .reg-optional {
