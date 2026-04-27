@@ -1,11 +1,12 @@
 from flask import Blueprint, request, jsonify
 from werkzeug.security import generate_password_hash, check_password_hash
 from services.firebase import db
+from flask_jwt_extended import create_access_token
 
 auth_bp = Blueprint('auth', __name__)
 
 # 🟢 REGISTER
-@auth_bp.route('/register', methods=['POST'])
+@auth_bp.route('/api/auth/register', methods=['POST'])
 def register():
     try:
         data = request.json
@@ -36,7 +37,7 @@ def register():
 
 
 # 🟢 LOGIN
-@auth_bp.route('/login', methods=['POST'])
+@auth_bp.route('/api/auth/login', methods=['POST'])
 def login():
     try:
         data = request.json
@@ -56,8 +57,13 @@ def login():
         if not check_password_hash(user_data["password"], password):
             return jsonify({"message": "Invalid password"}), 401
 
+        # 🔥 ADD THIS LINE (TOKEN CREATE)
+        token = create_access_token(identity=user_data["id"])
+
+        # 🔥 MODIFY RETURN (token add kar)
         return jsonify({
             "message": "Login successful",
+            "token": token,   # 👈 IMPORTANT
             "user": {
                 "id": user_data["id"],
                 "email": user_data["email"],

@@ -128,14 +128,31 @@ def get_alerts(location):
         return jsonify({"error": "Could not fetch alerts"}), 500
 
 
-@predict_bp.route('/history/<user_id>', methods=['GET'])
-def get_user_history(user_id):
+@predict_bp.route('/reports/<report_or_user_id>', methods=['GET'])
+def get_reports(report_or_user_id):
+    """
+    Get either:
+    - A single report by ID (if called as /reports/{reportId})
+    - All reports for a user (if called as /reports/{userId})
+    """
     try:
-        from services.firebase import get_user_reports
-        reports = get_user_reports(user_id)
-        return jsonify({"reports": reports}), 200
+        from services.firebase import get_report_by_id, get_user_reports
+        
+        # First try to get as a single report
+        report = get_report_by_id(report_or_user_id)
+        if report:
+            return jsonify(report), 200
+        
+        # If not found, try as user_id (returns multiple reports)
+        reports = get_user_reports(report_or_user_id)
+        if reports:
+            return jsonify({"reports": reports}), 200
+        
+        # Not found as either
+        return jsonify({"error": "Not found", "reports": []}), 200
     except Exception as e:
-        return jsonify({"error": "Could not fetch history"}), 500
+        logger.error(f"Get reports error: {str(e)}")
+        return jsonify({"error": "Could not fetch reports", "reports": []}), 200
 
 
 @predict_bp.route('/feedback', methods=['POST'])

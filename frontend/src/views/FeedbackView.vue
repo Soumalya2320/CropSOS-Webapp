@@ -91,6 +91,8 @@
 </template>
 
 <script>
+import axios from 'axios'
+
 export default {
   name: 'FeedbackView',
   data() {
@@ -110,14 +112,29 @@ export default {
         alert('Please select a rating before submitting.')
         return
       }
+
       this.isSubmitting = true
-      
-      // Simulate API call
-      await new Promise(resolve => setTimeout(resolve, 1500))
-      
-      console.log('Feedback submitted:', { rating: this.rating, ...this.form })
-      this.isSubmitting = false
-      this.submitted = true
+
+      try {
+        const user = JSON.parse(localStorage.getItem("user") || "{}")
+
+        await axios.post("/feedback", {
+          reportId: this.reportId || "general-feedback",
+          userId: user.id || user._id,
+          isCorrect: this.rating >= 3,   // simple logic (3+ = positive)
+          rating: this.rating,
+          category: this.form.category,
+          message: this.form.message
+        })
+
+        this.submitted = true
+
+      } catch (err) {
+        console.error("Feedback error:", err)
+        alert("Failed to submit feedback")
+      } finally {
+        this.isSubmitting = false
+      }
     }
   }
 }
