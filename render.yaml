@@ -1,0 +1,16 @@
+services:
+  - type: web
+    name: cropsos-backend
+    env: python
+    rootDir: Backend                 
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn app:app --workers 1 --threads 2 --timeout 120 --bind 0.0.0.0:$PORT
+    envVars:
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: FIREBASE_CREDENTIALS_PATH
+        value: firebase-credentials.json
+      - key: FLASK_DEBUG
+        value: false
+      - key: JWT_SECRET_KEY
+        sync: false
