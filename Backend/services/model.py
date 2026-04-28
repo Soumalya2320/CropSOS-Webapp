@@ -1,20 +1,31 @@
-from transformers import pipeline
 from PIL import Image
-# import os
-# import uuid
-from PIL import Image
+import os
+import logging
 
-
-# Load model ONCE at startup — not on every request (performance critical)
-print("Loading plant disease model...")
-classifier = pipeline(
-    "image-classification",
-    model="HurudzaAI/plantdiseasedetection1"
-)
-print("Model loaded successfully.")
+logger = logging.getLogger(__name__)
 
 ALLOWED_EXTENSIONS = {'jpg', 'jpeg', 'png', 'webp'}
-MAX_FILE_SIZE_MB = 10
+
+
+_classifier = None
+
+def _get_classifier():
+    global _classifier
+    if _classifier is None:
+        logger.info("Loading plant disease model (first request)...")
+        
+        from transformers import pipeline
+        import torch
+
+        _classifier = pipeline(
+            "image-classification",
+            model="HurudzaAI/plantdiseasedetection1",
+            device=-1,                    
+            torch_dtype=torch.float32,    
+            framework="pt",
+        )
+        logger.info("Model loaded successfully.")
+    return _classifier
 
 
 def allowed_file(filename: str) -> bool:
@@ -22,45 +33,30 @@ def allowed_file(filename: str) -> bool:
 
 
 def analyze_plant_image(image_file) -> dict:
-    """Analyze a plant image and return detected disease and confidence."""
-    
-    # Input validation
     if not image_file or image_file.filename == '':
         return {"error": "No file selected"}
 
     if not allowed_file(image_file.filename):
         return {"error": f"Invalid file type. Allowed: {', '.join(ALLOWED_EXTENSIONS)}"}
 
-    # FIX #5: Unique temp file per request — prevents race conditions
-    # temp_path = f"/tmp/cropsos_{uuid.uuid4().hex}.jpg"
+    try:
+        image = Image.open(image_file.stream).convert("RGB")
+    except Exception:
+        return {"error": "Invalid image file — could not open"}
 
     try:
-
-        # Validate it's actually an image
-        try:
-            image = Image.open(image_file.stream).convert("RGB")
-        except Exception:
-            return {"error": "Invalid image file — could not open"}
-
-        # Run classifier
-        results = classifier(image)
+        classifier = _get_classifier()
+        results    = classifier(image)
 
         if not results:
             return {"error": "Model returned no results"}
 
-        top_result = results[0]
-        disease = top_result['label']
-        confidence = round(float(top_result['score']), 4)
+        top        = results[0]
+        disease    = top['label']
+        confidence = round(float(top['score']), 4)
 
-        return {
-            "disease": disease,
-            "confidence": confidence
-        }
+        return {"disease": disease, "confidence": confidence}
 
     except Exception as e:
+        logger.error(f"Model inference error: {str(e)}", exc_info=True)
         return {"error": f"Image analysis failed: {str(e)}"}
-
-    # finally:
-    #     # Always clean up temp file
-    #     if os.path.exists(temp_path):
-    #         os.remove(temp_path)

@@ -5,7 +5,7 @@ import logging
 import os
 from dotenv import load_dotenv
 from routes.auth import auth_bp
-from services.firebase import get_user_reports
+from services.firebase import get_user_reports, db
 from services.firebase import save_feedback
 from flask_jwt_extended import JWTManager
 

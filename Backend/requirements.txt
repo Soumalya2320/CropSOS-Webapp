@@ -1,11 +1,25 @@
+# ── Core Flask ──
 flask
 flask-cors
-transformers
-torch
-pillow
-google-genai
-firebase-admin
+flask-jwt-extended
 python-dotenv
 gunicorn
+
+# ── AI / ML ──
+# CPU-only torch — saves ~800MB vs full torch on Render free tier
+# Full torch = 2.5GB, CPU-only = 700MB
+--extra-index-url https://download.pytorch.org/whl/cpu
+torch==2.2.2+cpu
+torchvision==0.17.2+cpu
+
+transformers==4.40.0
+Pillow
+
+# ── Google Gemini (new SDK) ──
+google-genai
+
+# ── Firebase ──
+firebase-admin
+
+# ── Security ──
 werkzeug
- 
