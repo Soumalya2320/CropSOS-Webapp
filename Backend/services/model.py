@@ -21,8 +21,7 @@ def _get_classifier():
             "image-classification",
             model="HurudzaAI/plantdiseasedetection1",
             device=-1,                    
-            torch_dtype=torch.float32,    
-            framework="pt",
+            dtype=torch.float32
         )
         logger.info("Model loaded successfully.")
     return _classifier
